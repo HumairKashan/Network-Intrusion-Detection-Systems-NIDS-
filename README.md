@@ -1,12 +1,12 @@
-Network Intrusion Detection System (NIDS)
+# Network Intrusion Detection System (NIDS)
 
-A hybrid Network Intrusion Detection System combining a high-performance Rust packet sniffer with Python-based machine learning anomaly detection, designed as a final-year cybersecurity project.
+A hybrid Network Intrusion Detection System combining a Rust-based packet sniffer with a Python machine-learning pipeline for anomaly detection.
 
-This project focuses on real-time traffic capture, feature extraction, statistical aggregation, and ML-based intrusion detection, with an emphasis on robustness, repeatability, and explainability rather than black-box detection.
+This project is developed as a Final Year Project with a focus on network traffic analysis, unsupervised detection, and robust system design, rather than signature-based rules.
 
-📌 Project Motivation
+📌 Overview
 
-Traditional signature-based NIDS struggle against:
+Traditional intrusion detection systems often struggle with:
 
 Zero-day attacks
 
@@ -14,7 +14,7 @@ Encrypted traffic
 
 Evolving network behaviour
 
-This system instead uses:
+This system instead focuses on:
 
 Statistical traffic features
 
@@ -22,190 +22,88 @@ Unsupervised anomaly detection
 
 Sensitivity calibration to balance false positives and detection accuracy
 
-The goal is not just detection, but understanding why traffic is flagged
+The aim is not only to detect anomalies, but to understand and analyse network behaviour.
 
-🧠 System Architecture
-┌──────────────┐
-│ Network NIC  │
-└──────┬───────┘
-       │
-┌──────▼────────┐
-│ Rust Sniffer  │  (pcap, TCP/UDP parsing)
-│  - High perf  │
-│  - Low level  │
-└──────┬────────┘
-       │ JSON / IPC
-┌──────▼──────────┐
-│ Python Pipeline │
-│  - Feature eng  │
-│  - Aggregation  │
-│  - ML detection │
-└──────┬──────────┘
-       │
-┌──────▼──────────┐
-│ Storage / Logs  │
-│ (MongoDB / CSV) │
-└─────────────────┘
+🧠 Project Focus
+
+Packet-level network analysis
+
+Feature extraction and aggregation
+
+Machine learning–based anomaly detection
+
+Robustness and repeatability of results
+
+The project is intentionally modular to allow experimentation and evaluation.
 
 🦀 Rust Component (Packet Sniffer)
 
-Located in:
-
-RustSniffer/
-
+Location: RustSniffer/
 
 Responsibilities:
 
 Live packet capture
 
-Protocol parsing (TCP / UDP)
+TCP and UDP protocol parsing
 
-Timestamping & metadata extraction
+Timestamping and metadata extraction
 
-Minimal processing for performance
+High-performance, low-level traffic handling
 
-Streaming structured data to Python
-
-Why Rust?
-
-Memory safety
-
-Zero-cost abstractions
-
-Suitable for long-running network tools
-
-Avoids common C/C++ packet parsing vulnerabilities
+Rust is used for its memory safety, performance, and suitability for long-running network tools.
 
 🐍 Python Component (Detection & ML)
 
-Located in:
-
-Python/
-
+Location: Python/
 
 Responsibilities:
 
-Feature extraction
+Feature engineering from captured traffic
 
-Flow aggregation
+Aggregation of packets into flows
 
 Sensitivity calibration
 
-Unsupervised ML detection
+Unsupervised anomaly detection
 
-Techniques used:
-
-Statistical traffic features
-
-Sliding window aggregation
-
-Models such as:
-
-Isolation Forest
-
-Local Outlier Factor
-
-One-Class SVM (model selection subject to evaluation)
+The Python layer enables flexibility in data processing and model experimentation.
 
 ⚙️ Key Concepts Implemented
-1. Feature Aggregation
+Feature Aggregation
 
-Raw packets are aggregated into higher-level traffic features:
+Raw packets are grouped into higher-level traffic features such as volume, timing, and protocol behaviour to reduce noise and improve detection stability.
 
-Packet counts
+Sensitivity Calibration
 
-Byte volumes
+Detection thresholds are tuned to minimise false positives while maintaining detection capability.
 
-Inter-arrival times
+Robustness & Repeatability
 
-Flow duration
-
-Protocol distribution
-
-This reduces noise and improves ML stability.
-
-2. Sensitivity Calibration
-
-Thresholds are tuned to:
-
-Minimise false positives
-
-Maintain detection capability
-
-Ensure repeatable results across runs
-
-This is critical for real-world usability.
-
-3. Robustness & Repeatability
-
-The system is designed to:
-
-Produce consistent results under similar traffic
-
-Avoid over-sensitivity to minor fluctuations
-
-Support controlled evaluation and benchmarking
+The pipeline is designed to produce consistent results across similar traffic conditions.
 
 📊 Current Status
 
-✔ Rust packet capture working
-✔ Python ingestion pipeline working
-✔ ML inference operational
-✔ Data storage verified
+Packet capture implemented
 
-🚧 In progress:
+Python ingestion pipeline operational
 
-Final sensitivity calibration
+Machine-learning inference working
 
-Aggregation optimisation
+Data storage and logging verified
 
-Evaluation & metrics
+Ongoing work includes evaluation, calibration, and analysis.
 
-Visualization layer
-
-🧪 How to Run (High Level)
-
-Detailed setup instructions will be added once the pipeline is finalised.
-
-Start the Rust sniffer
-
-Run the Python receiver / ML pipeline
-
-Generate network traffic
-
-Observe detections and stored results
+📁 Repository Structure
+RustSniffer/   # Rust-based packet capture
+Python/        # Feature extraction and ML detection
+README.md
 
 🎓 Academic Context
 
-This project is developed as a Final Year Honours Project in Cybersecurity / Software Engineering, with a focus on:
+This project is developed as part of a Final Year Honours Project in Software Engineering / Cybersecurity, with emphasis on:
 
 Secure systems design
 
 Network traffic analysis
 
-Machine learning in security
-
-Real-world feasibility
-
-📁 Repository Structure
-.
-├── RustSniffer/     # High-performance packet capture
-├── Python/          # Feature extraction & ML detection
-├── .idea/           # IDE config (can be ignored)
-└── README.md
-
-🚀 Future Work
-
-Encrypted traffic behavioural analysis
-
-Model comparison & benchmarking
-
-Visualization dashboard
-
-Alert explainability
-
-Dataset export for academic evaluation
-
-📜 License
-
-This project is for academic and educational purposes.
+Machine learning in security contexts
