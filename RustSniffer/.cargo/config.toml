@@ -1,0 +1,2 @@
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-L", "C:/Users/roden/Documents/Final_Year_Project/npcap-sdk-1.15/Lib/x64"]
