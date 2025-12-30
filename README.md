@@ -6,33 +6,33 @@ This project is developed as a Final Year Project with a focus on network traffi
 
 📌 Overview
 
-Traditional intrusion detection systems often struggle with:
+• Traditional intrusion detection systems often struggle with:
 
-Zero-day attacks
+• Zero-day attacks
 
-Encrypted traffic
+• Encrypted traffic
 
-Evolving network behaviour
+• Evolving network behaviour
 
 This system instead focuses on:
 
-Statistical traffic features
+• Statistical traffic features
 
-Unsupervised anomaly detection
+• Unsupervised anomaly detection
 
-Sensitivity calibration to balance false positives and detection accuracy
+• Sensitivity calibration to balance false positives and detection accuracy
 
 The aim is not only to detect anomalies, but to understand and analyse network behaviour.
 
 🧠 Project Focus
 
-Packet-level network analysis
+• Packet-level network analysis
 
-Feature extraction and aggregation
+• Feature extraction and aggregation
 
-Machine learning–based anomaly detection
+• Machine learning–based anomaly detection
 
-Robustness and repeatability of results
+• Robustness and repeatability of results
 
 The project is intentionally modular to allow experimentation and evaluation.
 
@@ -42,13 +42,13 @@ Location: RustSniffer/
 
 Responsibilities:
 
-Live packet capture
+• Live packet capture
 
-TCP and UDP protocol parsing
+• TCP and UDP protocol parsing
 
-Timestamping and metadata extraction
+• Timestamping and metadata extraction
 
-High-performance, low-level traffic handling
+• High-performance, low-level traffic handling
 
 Rust is used for its memory safety, performance, and suitability for long-running network tools.
 
@@ -58,13 +58,13 @@ Location: Python/
 
 Responsibilities:
 
-Feature engineering from captured traffic
+• Feature engineering from captured traffic
 
-Aggregation of packets into flows
+• Aggregation of packets into flows
 
-Sensitivity calibration
+• Sensitivity calibration
 
-Unsupervised anomaly detection
+• Unsupervised anomaly detection
 
 The Python layer enables flexibility in data processing and model experimentation.
 
@@ -73,25 +73,25 @@ Feature Aggregation
 
 Raw packets are grouped into higher-level traffic features such as volume, timing, and protocol behaviour to reduce noise and improve detection stability.
 
-Sensitivity Calibration
+• Sensitivity Calibration
 
-Detection thresholds are tuned to minimise false positives while maintaining detection capability.
+• Detection thresholds are tuned to minimise false positives while maintaining detection capability.
 
-Robustness & Repeatability
+• Robustness & Repeatability
 
 The pipeline is designed to produce consistent results across similar traffic conditions.
 
 📊 Current Status
 
-Packet capture implemented
+• Packet capture implemented
 
-Python ingestion pipeline operational
+• Python ingestion pipeline operational
 
-Machine-learning inference working
+• Machine-learning inference working
 
-Data storage and logging verified
+• Data storage and logging verified
 
-Ongoing work includes evaluation, calibration, and analysis.
+• Ongoing work includes evaluation, calibration, and analysis.
 
 📁 Repository Structure
 RustSniffer/   # Rust-based packet capture
@@ -102,8 +102,8 @@ README.md
 
 This project is developed as part of a Final Year Honours Project in Software Engineering / Cybersecurity, with emphasis on:
 
-Secure systems design
+• Secure systems design
 
-Network traffic analysis
+• Network traffic analysis
 
-Machine learning in security contexts
+• Machine learning in security contexts
