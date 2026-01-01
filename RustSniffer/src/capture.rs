@@ -1,11 +1,8 @@
-#![allow(dead_code)]
 use anyhow::Context;
 use base64::{engine::general_purpose, Engine as _};
 use pcap::{Capture, Device};
 use serde::Serialize;
-use std::net::Ipv4Addr;
 use std::time::Instant;
-
 use crate::sender::SocketSender;
 use crate::utils::{extract_ipv4_and_ports, protocol_string};
 

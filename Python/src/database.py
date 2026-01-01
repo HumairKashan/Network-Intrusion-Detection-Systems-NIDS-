@@ -11,8 +11,34 @@ class DatabaseManager:
             self.client.server_info()
             self.db = self.client[db_name]
             log_success(f"Successfully connected to MongoDB: {db_name}")
+            self.create_indexes()  # NEW: Create indexes on startup
         except Exception as e:
             log_error(f"DATABASE CONNECTION FAILED: {e}")
+
+    def create_indexes(self):
+        """Create indexes for fast querying."""
+        if self.db is None:
+            return
+        
+        try:
+            # Packets indexes
+            self.db.packets.create_index("timestamp")
+            self.db.packets.create_index("src_ip")
+            self.db.packets.create_index("dst_ip")
+            
+            # Detections indexes
+            self.db.detections.create_index("timestamp")
+            self.db.detections.create_index("is_attack")
+            self.db.detections.create_index("source_ip")
+            
+            # Alerts indexes
+            self.db.alerts.create_index("timestamp")
+            self.db.alerts.create_index("source_ip")
+            self.db.alerts.create_index("dest_ip")
+            
+            log_success("Database indexes created successfully")
+        except Exception as e:
+            log_warning(f"Index creation failed (may already exist): {e}")
 
     def _sanitize_votes(self, votes: dict) -> dict:
         """

@@ -90,13 +90,27 @@ class AnomalyDetector:
         """
         Encodes categorical values using the stored category ordering in meta.
         Unknown -> -1
+        Handles case-insensitive matching for robustness.
         """
         if not self.meta:
             return -1.0
+        
         cats = self.meta.get("categories", {}).get(col, [])
+        
+        # Try exact match first
         try:
             return float(cats.index(value))
         except ValueError:
+            pass
+        
+        # Try case-insensitive match as fallback
+        value_lower = value.lower()
+        try:
+            # Create lowercase version of categories for matching
+            cats_lower = [c.lower() if isinstance(c, str) else c for c in cats]
+            idx = cats_lower.index(value_lower)
+            return float(idx)
+        except (ValueError, AttributeError):
             return -1.0
 
     def _features_to_vector(self, feats: dict) -> np.ndarray:
@@ -120,37 +134,77 @@ class AnomalyDetector:
 
         return np.array(vec, dtype=float)
 
+    def _sanitize_vector(self, x: np.ndarray) -> np.ndarray:
+        """Replace NaN/inf with safe defaults."""
+        return np.nan_to_num(x, nan=0.0, posinf=0.0, neginf=0.0)
+
     def detect(self, feats: dict):
         """
         Returns:
             is_attack (bool)
             confidence (float 0..1)
-            votes (dict model_name -> bool)
+            votes (dict model_name -> bool + metadata)
         """
-        x = self._features_to_vector(feats)
-
-        # ===== Step 2: debug print occasionally (so you can't miss it) =====
+        # GUARDRAIL 1: Check meta FIRST (before building vector)
+        if not self.meta:
+            log_warning("feature_meta.json missing - skipping detection")
+            return False, 0.0, {"error": "no_meta"}
+        
+        expected_len = len(self.meta["feature_cols"])
+        
+        # Build vector
+        try:
+            x = self._features_to_vector(feats)
+        except Exception as e:
+            log_error(f"Feature vector build failed: {e}")
+            return False, 0.0, {"error": "vector_build_failed"}
+        
+        # Debug print occasionally
         self._debug_counter += 1
         if self._debug_counter % 500 == 1:
-            expected = len(self.meta["feature_cols"]) if self.meta else "unknown"
-            print(f"[DEBUG] Feature vector length: {len(x)} (expected {expected})")
-        # ==============================================================
-
+            print(f"[DEBUG] Feature vector length: {len(x)} (expected {expected_len})")
+        
+        # GUARDRAIL 2: Vector length check
+        if len(x) != expected_len:
+            log_error(f"Feature vector length mismatch: got {len(x)}, expected {expected_len}")
+            return False, 0.0, {"error": "length_mismatch"}
+        
+        # GUARDRAIL 3: NaN/inf sanitization
+        x = self._sanitize_vector(x)
+        
+        # Scale
         if self.scaler is not None:
             x = self.scaler.transform([x])[0]
-
+            x = self._sanitize_vector(x)  # Sanitize again after scaling
+        
+        # Run models
         votes = {}
         preds = []
-
+        
         for name, model in self.models.items():
             try:
-                pred = model.predict([x])[0]  # -1 anomaly, +1 normal
+                pred = model.predict([x])[0]
+                
+                # EXPERIMENTAL FIX: Try inverting the prediction logic
+                # Standard: -1 = anomaly, +1 = normal
+                # Inverted: +1 = anomaly, -1 = normal (if models were trained on attacks)
+                
+                # OPTION 1: Standard logic (original)
                 is_anom = (pred == -1)
+                
+                # OPTION 2: Inverted logic (uncomment to test if attack rate is 100%)
+                # is_anom = (pred == 1)
+                
                 votes[name] = bool(is_anom)
                 preds.append(is_anom)
             except Exception as e:
                 log_warning(f"{name} inference failed: {e}")
-
+        
+        # Model availability awareness
+        models_loaded = len(self.models)
+        votes["models_loaded"] = models_loaded
+        votes["models_expected"] = 3
+        
         if preds:
             attack_votes = int(sum(preds))
             total_votes = int(len(preds))
@@ -159,5 +213,5 @@ class AnomalyDetector:
         else:
             is_attack = False
             confidence = 0.0
-
+        
         return bool(is_attack), float(confidence), votes
