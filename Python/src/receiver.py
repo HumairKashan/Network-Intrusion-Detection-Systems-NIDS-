@@ -129,17 +129,17 @@ class NIDSReceiver:
 
         # DB is independent of detector. Keep these separated.
         self.db = DatabaseManager()
-
-        # IMPORTANT FIX:
-        # AnomalyDetector expects model_dir (string path) or None.
-        # Passing DatabaseManager here is what caused:
-        # "expected str, bytes or os.PathLike object, not DatabaseManager"
         self.detector = AnomalyDetector()
-
         self.flow_window = FlowWindow(maxlen=2000)
 
         self.packet_count = 0
         self.last_log_time = time.time()
+
+        # NEW: Robustness tracking
+        self.dropped_count = 0
+        self.dropped_reasons = {}  # reason -> count
+        self.alert_dedup = {}  # (flow_key, protocol, conf_bucket) -> last_timestamp
+        self.alert_count = 0
 
     def _decode_packet_bytes(self, packet_b64: str):
         try:
@@ -147,6 +147,112 @@ class NIDSReceiver:
         except Exception as e:
             log_error(f"Failed to decode base64 payload: {e}")
             return None
+
+    def _validate_schema(self, msg: dict) -> tuple:
+        """
+        Validate required fields EXIST (not that they're truthy).
+        Returns (is_valid, reason_if_invalid)
+        """
+        # Core fields that must exist
+        core_required = ["src_ip", "dst_ip", "protocol", "src_port", "dst_port"]
+        
+        # Check core fields presence
+        missing = [k for k in core_required if k not in msg or msg[k] is None]
+        
+        if missing:
+            return False, f"missing_fields:{','.join(missing)}"
+        
+        # At least ONE payload field must exist (raw_data OR fallback keys)
+        payload_keys = ["raw_data", "data", "packet", "payload"]
+        has_payload = any(k in msg and msg[k] is not None for k in payload_keys)
+        
+        if not has_payload:
+            return False, "missing_payload:no_raw_data_or_fallbacks"
+        
+        # Additional sanity checks
+        if msg.get("src_ip") == "0.0.0.0" or msg.get("dst_ip") == "0.0.0.0":
+            return False, "invalid_ip:0.0.0.0"
+        
+        # Allow port 0 for ICMP, but check it's an integer
+        try:
+            int(msg.get("src_port", 0))
+            int(msg.get("dst_port", 0))
+        except (ValueError, TypeError):
+            return False, "invalid_port_type"
+        
+        return True, ""
+
+    def _check_feature_completeness(self, feats: dict) -> tuple:
+        """
+        Verify CORE features exist (not all 38, just the critical ones).
+        Returns (is_complete, reason_if_incomplete)
+        """
+        # Only check features we ACTUALLY compute in _build_features()
+        core_features = [
+            "proto", "state", "service",
+            "dur", "sbytes", "dbytes", "sttl",
+            "src_port", "dst_port",
+            "ct_src_ltm", "ct_dst_ltm", "ct_srv_dst"
+        ]
+        
+        missing = [f for f in core_features if f not in feats]
+        
+        if len(missing) > 3:  # Allow a few missing, but not most
+            return False, f"missing_core_features:{','.join(missing[:5])}"
+        
+        return True, ""
+
+    def _should_alert(self, msg: dict, confidence: float) -> bool:
+        """
+        Rate-limit alerts to prevent spam.
+        Returns True if should create new alert.
+        """
+        src_ip = msg.get("src_ip")
+        dst_ip = msg.get("dst_ip")
+        src_port = msg.get("src_port")
+        dst_port = msg.get("dst_port")
+        protocol = msg.get("protocol", "").upper()  # Normalize protocol
+        
+        # Dedup key: flow (with direction) + protocol + confidence bucket
+        # Normalize flow direction: sort IPs/ports so (A->B) and (B->A) dedup separately
+        if src_ip < dst_ip:
+            flow_key = (src_ip, src_port, dst_ip, dst_port)
+        else:
+            flow_key = (dst_ip, dst_port, src_ip, src_port)
+        
+        # Confidence bucket (FIXED: explicit thresholds)
+        if confidence <= 0.4:
+            conf_bucket = 0  # ~0.33
+        elif confidence <= 0.7:
+            conf_bucket = 1  # ~0.66
+        else:
+            conf_bucket = 2  # 1.0
+        
+        # Complete dedup key: flow + protocol + confidence
+        dedup_key = (flow_key, protocol, conf_bucket)
+        
+        now = time.time()
+        cooldown = 30  # seconds
+        
+        if dedup_key in self.alert_dedup:
+            last_seen = self.alert_dedup[dedup_key]
+            if now - last_seen < cooldown:
+                return False  # Too recent, skip
+        
+        self.alert_dedup[dedup_key] = now
+        return True
+
+    def _log_stats(self):
+        """Print debug stats every N packets."""
+        if self.packet_count % 1000 == 0 and self.packet_count > 0:
+            total = self.packet_count + self.dropped_count
+            drop_rate = (self.dropped_count / total * 100) if total > 0 else 0
+            
+            log_message(f"Stats: received={self.packet_count}, dropped={self.dropped_count} ({drop_rate:.1f}%), alerts={self.alert_count}")
+            
+            if self.dropped_reasons:
+                top_reasons = sorted(self.dropped_reasons.items(), key=lambda x: x[1], reverse=True)[:3]
+                log_message(f"Top drop reasons: {top_reasons}")
 
     def _build_features(self, msg: dict, pkt):
         """
@@ -225,15 +331,23 @@ class NIDSReceiver:
 
     def process_line(self, line: str):
         """
-        One JSON line from Rust.
+        Process one JSON line from Rust with robustness guardrails.
         """
+        # Parse JSON
         try:
             msg = json.loads(line)
         except Exception as e:
             log_error(f"Invalid JSON from Rust: {e} | line={line[:200]}")
             return
 
-        # Rust sends raw_data (base64). Also accept older keys for flexibility.
+        # GUARDRAIL 1: Schema validation
+        is_valid, reason = self._validate_schema(msg)
+        if not is_valid:
+            self.dropped_count += 1
+            self.dropped_reasons[reason] = self.dropped_reasons.get(reason, 0) + 1
+            return
+
+        # Decode packet (RESTORED: fallback keys for backward compatibility)
         data_b64 = (
             msg.get("raw_data")
             or msg.get("data")
@@ -242,18 +356,26 @@ class NIDSReceiver:
         )
 
         if not data_b64:
-            log_warning(f"Received JSON without packet data keys. keys={list(msg.keys())}")
+            self.dropped_count += 1
+            self.dropped_reasons["no_raw_data"] = self.dropped_reasons.get("no_raw_data", 0) + 1
             return
 
         raw = self._decode_packet_bytes(str(data_b64))
         if raw is None:
+            self.dropped_count += 1
+            self.dropped_reasons["decode_failed"] = self.dropped_reasons.get("decode_failed", 0) + 1
             return
 
         self.packet_count += 1
         now = time.time()
+        
+        # Original heartbeat logging (keep existing behavior)
         if now - self.last_log_time >= 2:
             log_message(f"[PY] receiving... packet_count={self.packet_count}")
             self.last_log_time = now
+        
+        # NEW: Periodic stats logging
+        self._log_stats()
 
         # Try to parse a scapy packet (optional)
         pkt = None
@@ -265,7 +387,6 @@ class NIDSReceiver:
         # 1) Log packet to MongoDB
         packet_id = None
         try:
-            # Store a compact copy (do not store full raw if you don't want).
             packet_doc = {
                 "timestamp": msg.get("timestamp"),
                 "protocol": msg.get("protocol"),
@@ -274,19 +395,28 @@ class NIDSReceiver:
                 "src_port": msg.get("src_port"),
                 "dst_port": msg.get("dst_port"),
                 "length": msg.get("length"),
-                # Store raw as base64 string (Mongo can store it)
                 "raw_data": data_b64,
             }
             packet_id = self.db.log_packet(packet_doc)
         except Exception as e:
             log_error(f"Failed to log packet to DB: {e}")
 
-        # 2) Feature extraction + ML detection
+        # GUARDRAIL 2: Feature extraction with completeness check
         try:
             feats = self._build_features(msg, pkt)
+            
+            is_complete, reason = self._check_feature_completeness(feats)
+            if not is_complete:
+                self.dropped_count += 1
+                self.dropped_reasons[reason] = self.dropped_reasons.get(reason, 0) + 1
+                return
+            
+            # Detection
             is_attack, confidence, votes = self.detector.detect(feats)
         except Exception as e:
             log_error(f"Detection failed: {e}")
+            self.dropped_count += 1
+            self.dropped_reasons["detection_error"] = self.dropped_reasons.get("detection_error", 0) + 1
             return
 
         # 3) Log detection + optional alert
@@ -299,13 +429,16 @@ class NIDSReceiver:
                 packet_id=packet_id,
             )
 
-            if is_attack and confidence >= 0.5:
-                self.db.log_alert(
-                    packet_data=msg,
-                    confidence=confidence,
-                    votes=votes,
-                    packet_id=packet_id,
-                )
+            # GUARDRAIL 3: Alert deduplication
+            if is_attack and confidence >= 1.0: # changed 0.5 to 1.0 for a temporary fix, might need to adjust later
+                if self._should_alert(msg, confidence):
+                    self.db.log_alert(
+                        packet_data=msg,
+                        confidence=confidence,
+                        votes=votes,
+                        packet_id=packet_id,
+                    )
+                    self.alert_count += 1
         except Exception as e:
             log_error(f"DB logging failed: {e}")
 
@@ -337,6 +470,9 @@ class NIDSReceiver:
                             log_message(f"[PY] heartbeat: connected, received_lines={received_lines}")
                             last_heartbeat = time.time()
                         continue
+                    except Exception as e:  # NEW: Catch connection errors
+                        log_error(f"Connection error: {e}")
+                        break  # Break inner loop, wait for reconnection
 
                     if not chunk:
                         log_warning("Rust sniffer disconnected.")
@@ -356,3 +492,6 @@ class NIDSReceiver:
                 if tail:
                     received_lines += 1
                     self.process_line(tail)
+            
+            # After connection closes, loop back to accept() and wait for Rust to reconnect
+            log_message("Waiting for Rust to reconnect...")
