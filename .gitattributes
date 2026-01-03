@@ -1,0 +1,14 @@
+# --- Exclude research / benchmark notebooks from language stats ---
+**/*.ipynb linguist-vendored
+
+# --- Ignore Python cache & generated files ---
+**/__pycache__/** linguist-generated
+**/*.pyc linguist-generated
+
+# --- Ignore Rust build artifacts ---
+**/target/** linguist-generated
+**/*.lock linguist-generated
+
+# --- Optional: IDE / metadata ---
+.idea/** linguist-vendored
+.vscode/** linguist-vendored
